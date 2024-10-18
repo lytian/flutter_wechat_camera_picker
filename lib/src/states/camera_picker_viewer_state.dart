@@ -184,7 +184,6 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
             entity = await PhotoManager.editor.saveVideo(
               previewFile,
               title: title,
-              title: path.basename(filePath),
             );
             break;
         }
