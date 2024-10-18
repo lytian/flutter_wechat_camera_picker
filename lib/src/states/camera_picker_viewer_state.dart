@@ -4,7 +4,6 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -12,6 +11,7 @@ import 'package:path/path.dart' as path;
 import 'package:video_player/video_player.dart';
 import 'package:wechat_picker_library/wechat_picker_library.dart';
 
+import '../constants/config.dart';
 import '../internals/singleton.dart';
 import '../constants/enums.dart';
 import '../constants/type_defs.dart';
@@ -20,21 +20,22 @@ import '../widgets/camera_picker.dart';
 import '../widgets/camera_picker_viewer.dart';
 
 class CameraPickerViewerState extends State<CameraPickerViewer> {
+  CameraPickerConfig get pickerConfig => widget.pickerConfig;
+
   /// Whether the player is playing.
   /// 播放器是否在播放
-  final ValueNotifier<bool> isPlaying = ValueNotifier<bool>(false);
+  final isPlaying = ValueNotifier<bool>(false);
 
-  late final ThemeData theme = widget.pickerConfig.theme ??
-      CameraPicker.themeData(defaultThemeColorWeChat);
+  late final theme =
+      pickerConfig.theme ?? CameraPicker.themeData(defaultThemeColorWeChat);
 
   /// Construct an [File] instance through [previewXFile].
   /// 通过 [previewXFile] 构建 [File] 实例。
-  late final File previewFile = File(widget.previewXFile.path);
+  late final previewFile = File(widget.previewXFile.path);
 
   /// Controller for the video player.
   /// 视频播放的控制器
-  late final VideoPlayerController videoController =
-      VideoPlayerController.file(previewFile);
+  late final videoController = VideoPlayerController.file(previewFile);
 
   /// Whether the controller is playing.
   /// 播放控制器是否在播放
@@ -51,7 +52,7 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
   /// Whether the saving process is ongoing.
   bool isSavingEntity = false;
 
-  CameraErrorHandler? get onError => widget.pickerConfig.onError;
+  CameraErrorHandler? get onError => pickerConfig.onError;
 
   @override
   void initState() {
@@ -75,8 +76,9 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
       await videoController.initialize();
       videoController.addListener(videoControllerListener);
       hasLoaded = true;
-      if (widget.pickerConfig.shouldAutoPreviewVideo) {
+      if (pickerConfig.shouldAutoPreviewVideo) {
         videoController.play();
+        videoController.setLooping(true);
       }
     } catch (e, s) {
       hasErrorWhenInitializing = true;
@@ -107,12 +109,11 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
         videoController.pause();
       } else {
         if (videoController.value.duration == videoController.value.position) {
-          videoController
-            ..seekTo(Duration.zero)
-            ..play();
-        } else {
-          videoController.play();
+          videoController.seekTo(Duration.zero);
         }
+        videoController
+          ..play()
+          ..setLooping(true);
       }
     } catch (e, s) {
       handleErrorWithHandler(e, s, onError);
@@ -131,9 +132,9 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
     });
 
     // Handle the explicitly entity saving method.
-    if (widget.pickerConfig.onEntitySaving != null) {
+    if (pickerConfig.onEntitySaving != null) {
       try {
-        await widget.pickerConfig.onEntitySaving!(
+        await pickerConfig.onEntitySaving!(
           context,
           widget.viewType,
           File(widget.previewXFile.path),
@@ -150,14 +151,30 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
 
     AssetEntity? entity;
     try {
-      final PermissionState ps = await PhotoManager.requestPermissionExtend();
+      final ps = await PhotoManager.requestPermissionExtend(
+        requestOption: pickerConfig.permissionRequestOption ??
+            PermissionRequestOption(
+              iosAccessLevel: IosAccessLevel.addOnly,
+              androidPermission: AndroidPermission(
+                type: switch ((
+                  pickerConfig.enableRecording,
+                  pickerConfig.enableTapRecording
+                )) {
+                  (true, false) => RequestType.common,
+                  (true, true) => RequestType.video,
+                  (false, _) => RequestType.image,
+                },
+                mediaLocation: false,
+              ),
+            ),
+      );
       if (ps == PermissionState.authorized || ps == PermissionState.limited) {
+        final filePath = previewFile.path;
         switch (widget.viewType) {
           case CameraPickerViewType.image:
-            final String filePath = previewFile.path;
             entity = await PhotoManager.editor.saveImageWithPath(
               filePath,
-              title: path.basename(previewFile.path),
+              title: path.basename(filePath),
             );
             break;
           case CameraPickerViewType.video:
@@ -167,11 +184,11 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
             entity = await PhotoManager.editor.saveVideo(
               previewFile,
               title: title,
+              title: path.basename(filePath),
             );
             break;
         }
-        if (widget.pickerConfig.shouldDeletePreviewFile &&
-            previewFile.existsSync()) {
+        if (pickerConfig.shouldDeletePreviewFile && previewFile.existsSync()) {
           previewFile.delete().catchError((e, s) {
             handleErrorWithHandler(e, s, onError);
             return previewFile;
@@ -208,9 +225,6 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
         onPressed: () {
           if (isSavingEntity) {
             return;
-          }
-          if (previewFile.existsSync()) {
-            previewFile.delete();
           }
           Navigator.of(context).pop();
         },
@@ -355,7 +369,7 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
       child: AnimatedOpacity(
         duration: kThemeAnimationDuration,
         opacity: isSavingEntity ? 1 : 0,
-        child: _WechatLoading(tip: Singleton.textDelegate.saving),
+        child: LoadingIndicator(tip: Singleton.textDelegate.saving),
       ),
     );
   }
@@ -373,122 +387,28 @@ class CameraPickerViewerState extends State<CameraPickerViewer> {
     if (!hasLoaded) {
       return const SizedBox.shrink();
     }
-    return Material(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          buildPreview(context),
-          buildForeground(context),
-          if (isSavingEntity) buildLoading(context),
-        ],
-      ),
-    );
-  }
-}
-
-class _WechatLoading extends StatefulWidget {
-  // ignore: unused_element
-  const _WechatLoading({super.key, required this.tip});
-
-  final String tip;
-
-  @override
-  State<_WechatLoading> createState() => _WechatLoadingState();
-}
-
-class _WechatLoadingState extends State<_WechatLoading>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    duration: const Duration(seconds: 2),
-    vsync: this,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Widget _buildContent(BuildContext context, double minWidth) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        SizedBox.fromSize(
-          size: Size.square(minWidth / 3),
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (_, Widget? child) => Transform.rotate(
-              angle: math.pi * 2 * _controller.value,
-              child: child,
-            ),
-            child: CustomPaint(
-              painter: _LoadingPainter(
-                Theme.of(context).textTheme.bodyMedium?.color,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(height: minWidth / 10),
-        Text(
-          widget.tip,
-          style: const TextStyle(fontSize: 14),
-        ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final double minWidth = MediaQuery.of(context).size.shortestSide / 3;
-    return Container(
-      color: Colors.black38,
-      alignment: Alignment.center,
-      child: RepaintBoundary(
-        child: Container(
-          constraints: BoxConstraints(minWidth: minWidth),
-          padding: EdgeInsets.all(minWidth / 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            color: Theme.of(context).canvasColor,
-          ),
-          child: _buildContent(context, minWidth),
+    return PopScope(
+      canPop: true,
+      // ignore: deprecated_member_use
+      onPopInvoked: (didPop) {
+        if (didPop && previewFile.existsSync()) {
+          previewFile.delete().catchError((e, s) {
+            handleErrorWithHandler(e, s, onError);
+            return previewFile;
+          });
+        }
+      },
+      child: Material(
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            buildPreview(context),
+            buildForeground(context),
+            if (isSavingEntity) buildLoading(context),
+          ],
         ),
       ),
     );
   }
-}
-
-class _LoadingPainter extends CustomPainter {
-  const _LoadingPainter(this.activeColor);
-
-  final Color? activeColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Color color = activeColor ?? Colors.white;
-    final Offset center = Offset(size.width / 2, size.height / 2);
-    final Rect rect = Rect.fromCenter(
-      center: center,
-      width: size.width,
-      height: size.height,
-    );
-    final Paint paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 4
-      ..shader = SweepGradient(
-        colors: <Color>[color.withOpacity(0), color],
-      ).createShader(rect);
-    canvas.drawArc(rect, 0.1, math.pi * 2 * 0.9, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_LoadingPainter oldDelegate) => false;
 }

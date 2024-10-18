@@ -5,6 +5,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../delegates/camera_picker_text_delegate.dart';
 import 'type_defs.dart';
@@ -23,15 +24,15 @@ final class CameraPickerConfig {
     this.enableExposureControlOnPoint = true,
     this.enablePinchToZoom = true,
     this.enablePullToZoomInRecord = true,
-    this.enableScaledPreview = true,
+    this.enableScaledPreview = false,
     this.shouldDeletePreviewFile = false,
-    this.shouldAutoPreviewVideo = false,
+    this.shouldAutoPreviewVideo = true,
     this.maximumRecordingDuration = const Duration(seconds: 15),
     this.minimumRecordingDuration = const Duration(seconds: 1),
     this.theme,
     this.textDelegate,
     this.cameraQuarterTurns = 0,
-    this.resolutionPreset = ResolutionPreset.max,
+    this.resolutionPreset = ResolutionPreset.ultraHigh,
     this.imageFormatGroup = ImageFormatGroup.unknown,
     this.preferredLensDirection = CameraLensDirection.back,
     this.preferredFlashMode = FlashMode.off,
@@ -42,6 +43,8 @@ final class CameraPickerConfig {
     this.onError,
     this.onXFileCaptured,
     this.onMinimumRecordDurationNotMet,
+    this.onPickConfirmed,
+    this.permissionRequestOption,
   }) : assert(
           enableRecording == true || onlyEnableRecording != true,
           'Recording mode error.',
@@ -165,4 +168,13 @@ final class CameraPickerConfig {
   /// The callback when the recording is not met the minimum recording duration.
   /// 录制时长未达到最小时长时的回调方法。
   final VoidCallback? onMinimumRecordDurationNotMet;
+
+  /// The callback when the picture or the video is confirmed as picked.
+  /// 拍照或录像确认时的回调方法。
+  final void Function(AssetEntity)? onPickConfirmed;
+
+  /// The permission request option when saving the captured file using
+  /// the `photo_manager` package.
+  /// 使用 `photo_manager` 保存拍摄的文件的权限请求配置。
+  final PermissionRequestOption? permissionRequestOption;
 }
